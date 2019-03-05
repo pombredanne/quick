@@ -465,7 +465,10 @@ def opt_to_widget(opt):
     elif hasattr(opt.type, 'to_widget'):
             return opt.type.to_widget()
 
-    if isinstance(opt, click.core.Argument) and (opt.nargs > 1 or opt.nargs == -1):
+    if isinstance(opt, click.core.Argument):
+        if opt.nargs == 1:
+            return text_arguement(opt)
+        elif (opt.nargs > 1 or opt.nargs == -1):
             return multi_text_arguement(opt)
     else:
         if opt.nargs > 1 :
@@ -490,16 +493,18 @@ def opt_to_widget(opt):
 
 def layout_append_opts(layout, opts):
     params_func = []
+    widgets = []
     i = 0
     for i, para in enumerate(opts):
         widget, value_func = opt_to_widget(para)
+        widgets.append(widget)
         params_func.append(value_func)
         for idx, w in enumerate(widget):
             if isinstance(w, QtWidgets.QLayout):
                 layout.addLayout(w, i, idx)
             else:
                 layout.addWidget(w, i, idx)
-    return layout, params_func
+    return layout, params_func, widgets
 
 def generate_sysargv(cmd_list):
     argv_list = []
@@ -515,7 +520,7 @@ class _Spliter(QtWidgets.QFrame):
         self.setFrameShape(QtWidgets.QFrame.HLine)
 
 class _InputComboBox(QtWidgets.QComboBox):
-    pass 
+    pass
 
 class _InputTabWidget(QtWidgets.QTabWidget):
     pass
@@ -535,9 +540,9 @@ class _InputCheckBox(QtWidgets.QCheckBox):
 class _InputSpinBox(QtWidgets.QSpinBox):
     pass
 
-class OptionWidgetSet(QtWidgets.QGridLayout):
+class CommandLayout(QtWidgets.QGridLayout):
     def __init__(self, func, run_exit, parent_layout=None):
-        super(OptionWidgetSet, self).__init__()
+        super(CommandLayout, self).__init__()
         self.parent_layout = parent_layout
         self.func = func
         self.run_exit = run_exit
@@ -547,7 +552,8 @@ class OptionWidgetSet(QtWidgets.QGridLayout):
             self.addWidget(label, 0, 0, 1, 2)
             frame = _Spliter()
             self.addWidget(frame, 1, 0, 1, 2)
-        self.params_func = self.append_opts(self.func.params)
+        self.params_func, self.widgets = self.append_opts(self.func.params)
+
 
     def add_sysargv(self):
         if hasattr(self.parent_layout, "add_sysargv"):
@@ -558,8 +564,10 @@ class OptionWidgetSet(QtWidgets.QGridLayout):
 
     def append_opts(self, opts):
         params_func = []
+        widgets = []
         for i, para in enumerate(opts, self.rowCount()):
             widget, value_func = opt_to_widget(para)
+            widgets.append(widget)
             params_func.append(value_func)
             for idx, w in enumerate(widget):
                 if isinstance(w, QtWidgets.QLayout):
@@ -567,7 +575,7 @@ class OptionWidgetSet(QtWidgets.QGridLayout):
                 else:
                     self.addWidget(w, i, idx)
             self.setRowStretch(i, 5)
-        return params_func
+        return params_func, widgets
 
     def generate_cmd_button(self, label, cmd_slot, tooltip=""):
         button = QtWidgets.QPushButton(label)
@@ -638,7 +646,7 @@ class App(QtWidgets.QWidget):
         self.threadpool = QtCore.QThreadPool()
 
     def initCommandUI(self, func, run_exit, parent_layout=None):
-        opt_set = OptionWidgetSet(func, run_exit, parent_layout=parent_layout)
+        opt_set = CommandLayout(func, run_exit, parent_layout=parent_layout)
         if isinstance(func, click.MultiCommand):
             tabs = _InputTabWidget()
             for cmd, f in func.commands.items():
@@ -649,7 +657,7 @@ class App(QtWidgets.QWidget):
             opt_set.addWidget(
                     tabs, opt_set.rowCount(), 0, 1, 2
                     )
-            return opt_set
+            # return opt_set
         elif isinstance(func, click.Command):
             new_thread = getattr(func, "new_thread", self.new_thread)
             opt_set.add_cmd_buttons( args=
@@ -667,14 +675,15 @@ class App(QtWidgets.QWidget):
                             },
                         ]
                     )
-            return opt_set
+        return opt_set
 
     def initUI(self, run_exit, geometry):
         self.run_exit = run_exit
         self.setWindowTitle(self.title)
         # self.setGeometry(self.left, self.top, self.width, self.height)
         self.setGeometry(geometry)
-        self.setLayout(self.initCommandUI(self.func, run_exit, ))
+        self.opt_set = self.initCommandUI(self.func, run_exit, )
+        self.setLayout(self.opt_set)
         self.show()
 
 
@@ -704,6 +713,11 @@ def gui_it(click_func, style="qdarkstyle", **argvs)->None:
     _gstyle = GStyle(style)
     app = QtWidgets.QApplication(sys.argv)
     app.setStyleSheet(_gstyle.stylesheet)
+
+    # set the default value for argvs
+    argvs["run_exit"] = argvs.get("run_exit", False)
+    argvs["new_thread"] = argvs.get("new_thread", False)
+
     ex = App(click_func, **argvs)
     sys.exit(app.exec_())
 
